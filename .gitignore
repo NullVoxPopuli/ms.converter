@@ -18,6 +18,9 @@ build/
 bld/
 [Bb]in/
 [Oo]bj/
+App_Data/
+css/
+public/
 
 # Roslyn cache directories
 *.ide/
