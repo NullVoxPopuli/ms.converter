@@ -9,6 +9,9 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.Http;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using OpenXmlPowerTools;
 
 namespace Ms.Converter.Controllers
 {
@@ -23,91 +26,82 @@ namespace Ms.Converter.Controllers
         //public void Post([FromBody] string output) {}
 
 
+        public static byte[] ReadFully(Stream input)
+        {
+            byte[] buffer = new byte[16 * 1024];
+            using (MemoryStream ms = new MemoryStream())
+            {
+                int read;
+                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    ms.Write(buffer, 0, read);
+                }
+                return ms.ToArray();
+            }
+        }
+
         // POST: api/Word 
         //
         // From the APS.NET Web API File Upload Sample
         // With Modifications:
         // - don't write file to disk
         // - render UnsupportedMediaType if non-word file uploaded
-        public async Task<HttpResponseMessage> PostFile()
+        public async Task<HttpResponseMessage> Post()
         {
+            HttpResponseMessage result = new HttpResponseMessage(HttpStatusCode.OK);
+
             // Check if the request contains multipart/form-data.
             if (!Request.Content.IsMimeMultipartContent())
             {
                 throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
             }
 
-            // server upload path
-            string root = HttpContext.Current.Server.MapPath("~/App_Data");
-            var provider = new MultipartFormDataStreamProvider(root);
-            //var provider = await Request.Content.ReadAsMultipartAsync<InMemoryMultipartFormDataStreamProvider>(new InMemoryMultipartFormDataStreamProvider());
+            //try
+            //{
+                // Multipart content can be read into any of the concrete implementations of 
+                // the abstract MultipartStreamProvider class
+                // - see http://aspnetwebstack.codeplex.com/SourceControl/changeset/view/8fda60945d49#src%2fSystem.Net.Http.Formatting%2fMultipartStreamProvider.cs
+                var streamProvider = new MultipartMemoryStreamProvider();
+                Request.Content.LoadIntoBufferAsync().Wait();
 
-
-            try
-            {
-                // Read the form data and return an async task.
-                await Request.Content.ReadAsMultipartAsync(provider);
-
-                // This illustrates how to get the form data.
-                //foreach (var key in provider.FormData.AllKeys)
-                //{
-                //    foreach (var val in provider.FormData.GetValues(key))
-                //    {
-                //        sb.Append(string.Format("{0}: {1}\n", key, val));
-                //    }
-                //}
-
-                // This illustrates how to get the file names for uploaded files.
-                var firstFile = provider.FileData[0];
-                foreach (var file in provider.FileData)
+                var task = Request.Content.ReadAsMultipartAsync(streamProvider).ContinueWith(t =>
                 {
-                    string fileName = UnquoteToken(file.Headers.ContentDisposition.FileName);
-                    string ext = Path.GetExtension(fileName);
+                    MultipartMemoryStreamProvider provider = t.Result;
 
-                    // Path.GetExtension leaves the . on the extension.
-                    // this removes the dot. 
-                    ext = ext.Substring(1, ext.Length - 1);
-
-                    if (!acceptableFormats.Contains(ext))
+                    foreach (HttpContent content in provider.Contents)
                     {
-                        throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
+                        Stream stream = content.ReadAsStreamAsync().Result;
+
+                        //uploadedFile = streamProvider.FileData[0];
+                        string fileName = content.Headers.ContentDisposition.FileName;
+                        // some browsers send the file name in extra quotes
+                        fileName = fileName.Replace("\"", "");
+                        var file = ReadFully(stream);
+                        WmlDocument doc = new WmlDocument(fileName, file);
+                        System.Xml.Linq.XElement html = HtmlConverter.ConvertToHtml(doc, new HtmlConverterSettings());
+
+                        // http://msdn.microsoft.com/en-us/library/office/ff628051(v=office.14).aspx#XHtml_Using
+                        // 
+                        // Note: the XHTML returned by ConvertToHtmlTransform contains objects of type
+                        // XEntity. PtOpenXmlUtil.cs defines the XEntity class. See
+                        // http://blogs.msdn.com/ericwhite/archive/2010/01/21/writing-entity-references-using-linq-to-xml.aspx
+                        // for detailed explanation.
+                        //
+                        // If you further transform the XML tree returned by ConvertToHtmlTransform, you
+                        // must do it correctly, or entities do not serialize properly.
+                        result.Content = new StringContent(html.ToStringNewLineOnAttributes());
+                        result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                        break;
                     }
-                }
+                });
 
-                FileInfo fileInfo = new FileInfo(firstFile.LocalFileName);
-
-                HttpResponseMessage result = new HttpResponseMessage(HttpStatusCode.OK);
-                var stream = new FileStream(firstFile.LocalFileName, FileMode.Open);
-                result.Content = new StreamContent(stream);
-                result.Content.Headers.ContentType =
-                    new MediaTypeHeaderValue("application/octet-stream");
                 return result;
-                
-            }
-            catch (System.Exception e)
-            {
-                return Request.CreateErrorResponse(HttpStatusCode.InternalServerError, e);
-            }
-        }
-
-        /// <summary>
-        /// Remove bounding quotes on a token if present
-        /// </summary>
-        /// <param name="token">Token to unquote.</param>
-        /// <returns>Unquoted token.</returns>
-        private static string UnquoteToken(string token)
-        {
-            if (String.IsNullOrWhiteSpace(token))
-            {
-                return token;
-            }
-
-            if (token.StartsWith("\"", StringComparison.Ordinal) && token.EndsWith("\"", StringComparison.Ordinal) && token.Length > 1)
-            {
-                return token.Substring(1, token.Length - 2);
-            }
-
-            return token;
+            //}
+            //catch ( System.Exception e)
+            //{
+            //    return Request.CreateErrorResponse(HttpStatusCode.InternalServerError, e);
+            //}
         }
     }
 
