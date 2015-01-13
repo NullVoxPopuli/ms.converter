@@ -18,27 +18,13 @@ namespace Ms.Converter.Controllers
     public class WordController : ApiController
     {
         // list of formats that can be converted by this controller
-        private static string[] acceptableFormats = { "doc", "docx" };
+        private static string[] acceptableFormats = { "docx" };
 
 
         // The default POST action
         // POST: api/Word
         //public void Post([FromBody] string output) {}
 
-
-        public static byte[] ReadFully(Stream input)
-        {
-            byte[] buffer = new byte[16 * 1024];
-            using (MemoryStream ms = new MemoryStream())
-            {
-                int read;
-                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    ms.Write(buffer, 0, read);
-                }
-                return ms.ToArray();
-            }
-        }
 
         // POST: api/Word 
         //
@@ -56,52 +42,85 @@ namespace Ms.Converter.Controllers
                 throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
             }
 
-            //try
-            //{
-                // Multipart content can be read into any of the concrete implementations of 
-                // the abstract MultipartStreamProvider class
-                // - see http://aspnetwebstack.codeplex.com/SourceControl/changeset/view/8fda60945d49#src%2fSystem.Net.Http.Formatting%2fMultipartStreamProvider.cs
-                var streamProvider = new MultipartMemoryStreamProvider();
-                Request.Content.LoadIntoBufferAsync().Wait();
+            try
+            {
 
-                var task = Request.Content.ReadAsMultipartAsync(streamProvider).ContinueWith(t =>
+
+                string root = HttpContext.Current.Server.MapPath("~/App_Data");
+                var provider = new MultipartFormDataStreamProvider(root);
+
+                // Read the form data and return an async task.
+                await Request.Content.ReadAsMultipartAsync(provider);
+
+                // This illustrates how to get the file names for uploaded files.
+                var firstFile = provider.FileData[0];
+                foreach (var file in provider.FileData)
                 {
-                    MultipartMemoryStreamProvider provider = t.Result;
+                    string fileName = file.Headers.ContentDisposition.FileName;
+                    fileName = fileName.Replace("\"", "");
+                    string ext = Path.GetExtension(fileName);
+                    FileInfo fileInfo = new FileInfo(file.LocalFileName);
 
-                    foreach (HttpContent content in provider.Contents)
+
+                    // Path.GetExtension leaves the . on the extension.
+                    // this removes the dot. 
+                    ext = ext.Substring(1, ext.Length - 1);
+
+                    if (!acceptableFormats.Contains(ext))
                     {
-                        Stream stream = content.ReadAsStreamAsync().Result;
-
-                        //uploadedFile = streamProvider.FileData[0];
-                        string fileName = content.Headers.ContentDisposition.FileName;
-                        // some browsers send the file name in extra quotes
-                        fileName = fileName.Replace("\"", "");
-                        var file = ReadFully(stream);
-                        WmlDocument doc = new WmlDocument(fileName, file);
-                        System.Xml.Linq.XElement html = HtmlConverter.ConvertToHtml(doc, new HtmlConverterSettings());
-
-                        // http://msdn.microsoft.com/en-us/library/office/ff628051(v=office.14).aspx#XHtml_Using
-                        // 
-                        // Note: the XHTML returned by ConvertToHtmlTransform contains objects of type
-                        // XEntity. PtOpenXmlUtil.cs defines the XEntity class. See
-                        // http://blogs.msdn.com/ericwhite/archive/2010/01/21/writing-entity-references-using-linq-to-xml.aspx
-                        // for detailed explanation.
-                        //
-                        // If you further transform the XML tree returned by ConvertToHtmlTransform, you
-                        // must do it correctly, or entities do not serialize properly.
-                        result.Content = new StringContent(html.ToStringNewLineOnAttributes());
-                        result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-
-                        break;
+                        throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
                     }
-                });
+
+                    byte[] fileAsBytes = GetBytesFromFile(file.LocalFileName);
+                    WmlDocument doc = new WmlDocument(fileName, fileAsBytes);
+                    System.Xml.Linq.XElement html = HtmlConverter.ConvertToHtml(doc, new HtmlConverterSettings());
+
+                    // http://msdn.microsoft.com/en-us/library/office/ff628051(v=office.14).aspx#XHtml_Using
+                    // 
+                    // Note: the XHTML returned by ConvertToHtmlTransform contains objects of type
+                    // XEntity. PtOpenXmlUtil.cs defines the XEntity class. See
+                    // http://blogs.msdn.com/ericwhite/archive/2010/01/21/writing-entity-references-using-linq-to-xml.aspx
+                    // for detailed explanation.
+                    //
+                    // If you further transform the XML tree returned by ConvertToHtmlTransform, you
+                    // must do it correctly, or entities do not serialize properly.
+                    result.Content = new StringContent(html.ToStringNewLineOnAttributes());
+                    result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    // only support one file for now
+                    break;
+                }
+
 
                 return result;
-            //}
-            //catch ( System.Exception e)
-            //{
-            //    return Request.CreateErrorResponse(HttpStatusCode.InternalServerError, e);
-            //}
+            }
+            catch (System.Exception e)
+            {
+                return Request.CreateErrorResponse(HttpStatusCode.InternalServerError, e);
+            }
+        }
+
+        public static byte[] GetBytesFromFile(string fullFilePath)
+        {
+            // this method is limited to 2^32 byte files (4.2 GB)
+
+            FileStream fs = null;
+            try
+            {
+                fs = File.OpenRead(fullFilePath);
+                byte[] bytes = new byte[fs.Length];
+                fs.Read(bytes, 0, Convert.ToInt32(fs.Length));
+                return bytes;
+            }
+            finally
+            {
+                if (fs != null)
+                {
+                    fs.Close();
+                    fs.Dispose();
+                }
+            }
+
         }
     }
 
