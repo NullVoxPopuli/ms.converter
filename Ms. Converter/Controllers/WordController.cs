@@ -9,13 +9,16 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.Http;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using OpenXmlPowerTools;
 
 namespace Ms.Converter.Controllers
 {
     public class WordController : ApiController
     {
         // list of formats that can be converted by this controller
-        private static string[] acceptableFormats = { "doc", "docx" };
+        private static string[] acceptableFormats = { "docx" };
 
 
         // The default POST action
@@ -29,40 +32,35 @@ namespace Ms.Converter.Controllers
         // With Modifications:
         // - don't write file to disk
         // - render UnsupportedMediaType if non-word file uploaded
-        public async Task<HttpResponseMessage> PostFile()
+        public async Task<HttpResponseMessage> Post()
         {
+            HttpResponseMessage result = new HttpResponseMessage(HttpStatusCode.OK);
+
             // Check if the request contains multipart/form-data.
             if (!Request.Content.IsMimeMultipartContent())
             {
                 throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
             }
 
-            // server upload path
-            string root = HttpContext.Current.Server.MapPath("~/App_Data");
-            var provider = new MultipartFormDataStreamProvider(root);
-            //var provider = await Request.Content.ReadAsMultipartAsync<InMemoryMultipartFormDataStreamProvider>(new InMemoryMultipartFormDataStreamProvider());
-
-
             try
             {
+
+
+                string root = HttpContext.Current.Server.MapPath("~/App_Data");
+                var provider = new MultipartFormDataStreamProvider(root);
+
                 // Read the form data and return an async task.
                 await Request.Content.ReadAsMultipartAsync(provider);
-
-                // This illustrates how to get the form data.
-                //foreach (var key in provider.FormData.AllKeys)
-                //{
-                //    foreach (var val in provider.FormData.GetValues(key))
-                //    {
-                //        sb.Append(string.Format("{0}: {1}\n", key, val));
-                //    }
-                //}
 
                 // This illustrates how to get the file names for uploaded files.
                 var firstFile = provider.FileData[0];
                 foreach (var file in provider.FileData)
                 {
-                    string fileName = UnquoteToken(file.Headers.ContentDisposition.FileName);
+                    string fileName = file.Headers.ContentDisposition.FileName;
+                    fileName = fileName.Replace("\"", "");
                     string ext = Path.GetExtension(fileName);
+                    FileInfo fileInfo = new FileInfo(file.LocalFileName);
+
 
                     // Path.GetExtension leaves the . on the extension.
                     // this removes the dot. 
@@ -72,17 +70,29 @@ namespace Ms.Converter.Controllers
                     {
                         throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
                     }
+
+                    byte[] fileAsBytes = GetBytesFromFile(file.LocalFileName);
+                    WmlDocument doc = new WmlDocument(fileName, fileAsBytes);
+                    System.Xml.Linq.XElement html = HtmlConverter.ConvertToHtml(doc, new HtmlConverterSettings());
+
+                    // http://msdn.microsoft.com/en-us/library/office/ff628051(v=office.14).aspx#XHtml_Using
+                    // 
+                    // Note: the XHTML returned by ConvertToHtmlTransform contains objects of type
+                    // XEntity. PtOpenXmlUtil.cs defines the XEntity class. See
+                    // http://blogs.msdn.com/ericwhite/archive/2010/01/21/writing-entity-references-using-linq-to-xml.aspx
+                    // for detailed explanation.
+                    //
+                    // If you further transform the XML tree returned by ConvertToHtmlTransform, you
+                    // must do it correctly, or entities do not serialize properly.
+                    result.Content = new StringContent(html.ToStringNewLineOnAttributes());
+                    result.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    // only support one file for now
+                    break;
                 }
 
-                FileInfo fileInfo = new FileInfo(firstFile.LocalFileName);
 
-                HttpResponseMessage result = new HttpResponseMessage(HttpStatusCode.OK);
-                var stream = new FileStream(firstFile.LocalFileName, FileMode.Open);
-                result.Content = new StreamContent(stream);
-                result.Content.Headers.ContentType =
-                    new MediaTypeHeaderValue("application/octet-stream");
                 return result;
-                
             }
             catch (System.Exception e)
             {
@@ -90,24 +100,27 @@ namespace Ms.Converter.Controllers
             }
         }
 
-        /// <summary>
-        /// Remove bounding quotes on a token if present
-        /// </summary>
-        /// <param name="token">Token to unquote.</param>
-        /// <returns>Unquoted token.</returns>
-        private static string UnquoteToken(string token)
+        public static byte[] GetBytesFromFile(string fullFilePath)
         {
-            if (String.IsNullOrWhiteSpace(token))
+            // this method is limited to 2^32 byte files (4.2 GB)
+
+            FileStream fs = null;
+            try
             {
-                return token;
+                fs = File.OpenRead(fullFilePath);
+                byte[] bytes = new byte[fs.Length];
+                fs.Read(bytes, 0, Convert.ToInt32(fs.Length));
+                return bytes;
+            }
+            finally
+            {
+                if (fs != null)
+                {
+                    fs.Close();
+                    fs.Dispose();
+                }
             }
 
-            if (token.StartsWith("\"", StringComparison.Ordinal) && token.EndsWith("\"", StringComparison.Ordinal) && token.Length > 1)
-            {
-                return token.Substring(1, token.Length - 2);
-            }
-
-            return token;
         }
     }
 
