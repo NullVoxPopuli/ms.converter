@@ -15,6 +15,18 @@ namespace Ms.Converter.Controllers.Concerns
         // list of formats that can be converted by this controller
         private static string[] acceptableFormats = { "docx" };
 
+
+        /*
+            Limitations at the time of writing this
+            - It only works with left-to-right languages. I have not validated with languages other than English.
+            - It implements only a subset of numbering systems.
+            - It does not convert math formulas, SmartArt, or DrawingML drawings.
+            - It does not convert text boxes.
+            - It does not handle merged cells.
+
+            Maybe these can be fixed by overriding some of the methods
+            in HTMLConverter
+        */
         public static StringContent convert(string pathName, string sourceFileName)
         {
             // parse out the extension
@@ -38,11 +50,13 @@ namespace Ms.Converter.Controllers.Concerns
             // Custom settings / overrides
             HtmlConverterSettings settings = new HtmlConverterSettings()
             {
-                // PageTitle = "some title"
+                // PageTitle = "some title",
+                RestrictToSupportedNumberingFormats = true,
+                CssClassPrefix = "ms-converter"
+                //Css = customCss
             };
 
-
-            // Tell HTMLConverter what to do with images, should it come across them
+            // - TODO: Tell HTMLConverter what to do with images, should it come across them
             // - TODO: find a way for the uploader to specify an S3 resource to upload to
             //   for when we want to display the resulting HTML online
 
