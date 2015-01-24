@@ -58,11 +58,15 @@ namespace Ms.Converter
             //    appId: "",
             //    appSecret: "");
 
-            //app.UseGoogleAuthentication(new GoogleOAuth2AuthenticationOptions()
-            //{
-            //    ClientId = "",
-            //    ClientSecret = ""
-            //});
+            /* 
+                I knowingly release these keys to the public, as they are not
+                intended to be used for anything in production
+            */
+            app.UseGoogleAuthentication(new GoogleOAuth2AuthenticationOptions()
+            {
+                ClientId = "82098202215-jcom3kvndk7f6pm64ds99mms8h7stoac.apps.googleusercontent.com",
+                ClientSecret = "Rq05OQ5qMUM2ryhzobBMOMrI"
+            });
         }
     }
 }

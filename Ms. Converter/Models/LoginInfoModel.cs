@@ -5,7 +5,7 @@ using System.Web;
 
 namespace Ms.Converter.Models
 {
-    public class LoginInfo
+    public class LoginInfoModel
     { 
         public string ProviderName { get; set; }
     }

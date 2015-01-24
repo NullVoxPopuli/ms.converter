@@ -27,6 +27,11 @@
                     <li>@Html.ActionLink("Home", "Index", "Home", new { area = "" }, null)</li>
                     <li>@Html.ActionLink("API", "Index", "Help", new { area = "" }, null)</li>
                 </ul>
+                <ul class="nav navbar-nav navbar-collapse collapse navbar-right">
+                    <li>
+                        @Html.ActionLink("Login", "Account/RegisterExternal", "api", new { @method = "POST" })
+                    </li>
+                </ul>
             </div>
         </div>
     </div>
@@ -45,6 +50,7 @@
     @Scripts.Render("~/bundles/jquery")
     @Scripts.Render("~/bundles/bootstrap")
     @Scripts.Render("~/Scripts/hidden-file-uploader.js")
+    @Scripts.Render("~/Scripts/jquery_ujs.js")
     @RenderSection("scripts", required: false)
 </body>
 </html>
